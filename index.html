@@ -154,6 +154,7 @@
     .seg button {
       padding: 8px 14px
     }
+    .seg button:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; }
 
     .spacer {
       flex: 1
@@ -188,7 +189,9 @@
     }
 
     .table.cols-3,
-    .table.cols-4 {
+    .table.cols-4,
+    .table.cols-5,
+    .table.cols-6 {
       grid-template-columns: 1fr 1fr
     }
 
@@ -521,7 +524,9 @@
 
       #tableScene .table,
       #tableScene .table.cols-3,
-      #tableScene .table.cols-4 {
+      #tableScene .table.cols-4,
+      #tableScene .table.cols-5,
+      #tableScene .table.cols-6 {
         grid-template-columns: 1fr
       }
     }
@@ -544,6 +549,8 @@
           <button data-k="2" class="chosen">2</button>
           <button data-k="3">3</button>
           <button data-k="4">4</button>
+          <button data-k="5">5</button>
+          <button data-k="6">6</button>
         </div>
       </div>
       <div class="grp">
@@ -552,7 +559,9 @@
           <button data-f="shape">Shape</button>
           <button data-f="color">Color</button>
           <button data-f="taste" class="chosen">Taste</button>
+          <button data-f="custom">Custom</button>
         </div>
+        <input id="customName" type="text" placeholder="Name your feature…" maxlength="30" autocomplete="off" aria-label="Custom feature name" style="display:none">
       </div>
       <div class="spacer"></div>
       <div class="grp">
@@ -586,10 +595,10 @@
       <button id="closeModal" class="icon" aria-label="Close help">✕</button>
       <h2 id="modalTitle">How to play</h2>
       <ol>
-        <li>Pick <b>K</b> — how many groups (2, 3, or 4).</li>
-        <li>Pick <b>one feature</b> — shape, color, or taste. Sort by that only!</li>
+        <li>Pick <b>K</b> — how many groups (2–4, or up to 6 with Custom).</li>
+        <li>Pick <b>one feature</b> — shape, color, taste, or Custom (name your own; any sorting counts as long as every group has a fruit).</li>
         <li>Grab fruits from the <b>🧺 basket</b> (top-right button).</li>
-        <li>Arrange them into the named <b>group boxes</b> on the table.</li>
+        <li>Arrange them into the <b>group boxes</b> on the table (named for shape/color/taste, numbered Group 1…K for Custom).</li>
         <li>Press <b>Finish ✓</b> to check. Fruits left in the basket don't count.</li>
       </ol>
       <p class="small">Like a clustering machine: you choose K and the feature, then group every fruit by what counts as
@@ -672,7 +681,7 @@
     };
     var FEATURE_LABEL = { shape: 'Shape', color: 'Color', taste: 'Taste' };
 
-    var state = { k: 2, feature: 'taste', place: {}, groupColors: [] }; /* place: fruitId -> boxIndex | 'basket' */
+    var state = { k: 2, feature: 'taste', customName: '', place: {}, groupColors: [] }; /* place: fruitId -> boxIndex | 'basket' */
 
     /* saturated accents, transparent boxes — wood shows through; text on readable pills */
     var GROUP_COLORS = ['#D32F2F', '#1565C0', '#E65100', '#6A1B9A', '#00796B', '#C2185B'];
@@ -684,6 +693,11 @@
       }
       return pool.slice(0, k);
     }
+    function setupLabel() { return state.feature === 'custom' ? (state.customName.trim() || 'Custom') : FEATURE_LABEL[state.feature]; }
+    function currentGroups() {
+      if (state.feature === 'custom') { var gs = []; for (var i = 0; i < state.k; i++) gs.push({ name: '' }); return gs; }
+      return ANSWER[state.feature][state.k];
+    }
     var selectedId = null;
 
     var tableEl = document.getElementById('table');
@@ -693,6 +707,7 @@
     var scrim = document.getElementById('scrim');
     var basketBtn = document.getElementById('basketBtn');
     var modal = document.getElementById('modal');
+    var customNameEl = document.getElementById('customName');
 
     function resetPlacement() {
       state.place = {};
@@ -727,13 +742,13 @@
       /* group boxes */
       tableEl.innerHTML = '';
       tableEl.className = 'table cols-' + state.k;
-      ANSWER[state.feature][state.k].forEach(function (g, i) {
+      currentGroups().forEach(function (g, i) {
         var box = document.createElement('section');
         box.className = 'gbox';
         box.dataset.drop = String(i);
         box.style.setProperty('--gc', state.groupColors[i]);
         var h = document.createElement('h2');
-        h.textContent = 'Group ' + (i + 1) + ': ' + g.name;
+        h.textContent = (state.feature === 'custom') ? ('Group ' + (i + 1)) : ('Group ' + (i + 1) + ': ' + g.name);
         box.appendChild(h);
         var drop = document.createElement('div');
         drop.className = 'drop';
@@ -762,10 +777,12 @@
       /* pickers */
       document.querySelectorAll('#kSeg button').forEach(function (b) {
         b.classList.toggle('chosen', Number(b.dataset.k) === state.k);
+        b.disabled = (Number(b.dataset.k) > 4 && state.feature !== 'custom');
       });
       document.querySelectorAll('#fSeg button').forEach(function (b) {
         b.classList.toggle('chosen', b.dataset.f === state.feature);
       });
+      customNameEl.style.display = (state.feature === 'custom') ? '' : 'none';
     }
 
     function moveFruit(fid, dest) {
@@ -885,11 +902,7 @@
 
     /* ---------- finish check: basket ignored ---------- */
     function checkPlacement() {
-      var groups = ANSWER[state.feature][state.k];
-      var correct = {};
-      groups.forEach(function (g, i) {
-        g.members.forEach(function (id) { correct[id] = i; });
-      });
+      var groups = currentGroups();
       var placed = FRUITS.filter(function (f) { return state.place[f.id] !== 'basket'; });
       if (!placed.length) {
         showMessage('lose', 'No fruits on the table yet — drag at least one fruit into a group, then Finish.');
@@ -898,12 +911,24 @@
       for (var i = 0; i < groups.length; i++) {
         var n = FRUITS.filter(function (f) { return state.place[f.id] === i; }).length;
         if (!n) {
-          showMessage('lose', 'Group ' + (i + 1) + ' (' + groups[i].name + ') is empty — put at least one fruit in every group.');
+          if (state.feature === 'custom') {
+            showMessage('lose', 'Group ' + (i + 1) + ' is empty — put at least one fruit in every group.');
+          } else {
+            showMessage('lose', 'Group ' + (i + 1) + ' (' + groups[i].name + ') is empty — put at least one fruit in every group.');
+          }
           return;
         }
       }
+      var setup = setupLabel() + ' · K=' + state.k;
+      if (state.feature === 'custom') {
+        showMessage('win', 'Nice sorting! ' + setup + ' — ' + placed.length + " placed, every group has at least one fruit!");
+        return;
+      }
+      var correct = {};
+      groups.forEach(function (g, i) {
+        g.members.forEach(function (id) { correct[id] = i; });
+      });
       var bad = placed.filter(function (f) { return state.place[f.id] !== correct[f.id]; });
-      var setup = FEATURE_LABEL[state.feature] + ' · K=' + state.k;
       if (!bad.length) {
         showMessage('win', 'Correct! ' + setup + ' — ' + placed.length + ' placed, all correct! Leftovers in the basket don\'t count.');
       } else {
@@ -918,7 +943,7 @@
     /* ---------- wiring ---------- */
     document.getElementById('kSeg').addEventListener('click', function (e) {
       var b = e.target.closest('button');
-      if (!b) return;
+      if (!b || b.disabled) return;
       state.k = Number(b.dataset.k);
       resetPlacement(); clearMessage(); render();
     });
@@ -926,7 +951,11 @@
       var b = e.target.closest('button');
       if (!b) return;
       state.feature = b.dataset.f;
+      if (state.feature !== 'custom' && state.k > 4) state.k = 4;
       resetPlacement(); clearMessage(); render();
+    });
+    customNameEl.addEventListener('input', function (e) {
+      state.customName = e.target.value.slice(0, 30);
     });
     document.getElementById('finishBtn').addEventListener('click', checkPlacement);
     document.getElementById('resetBtn').addEventListener('click', function () {
